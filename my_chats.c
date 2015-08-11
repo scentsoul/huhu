@@ -46,6 +46,7 @@ typedef struct th
 	pthread_t thread;		//线程号
 	int conn_fd;		//一个已连接的套接字
 	struct th *next;
+	struct th *next1;
 	char	pre_username[32];	//保存用户名
 	struct th *th;			//一个指针指向当前位置
 	struct th *present;
@@ -158,8 +159,8 @@ THREAD * find_match(THREAD *head)
 	char string[32];
 	h=head->next;
 
-	message_pro(head->present, string);
-	puts(string);
+	message_pro(head->present, string);  //有改动
+	//puts(string);                        //测试函数调用有没有成功
 	while(h != NULL)
 	{
 		if (strcmp(h->pre_username,string) == 0 ){
@@ -179,15 +180,14 @@ int message_pro(THREAD *thid,char *user)
 	char *p;
 
 
-	//printf("recv_buf = %s\n", thid->recv_buf);	测试的时候用
+	//printf("recv_buf = %s\n", thid->recv_buf);
 	str_len=strlen(thid->recv_buf);
 
 	for(i=0; i<str_len; i++){
-		if( thid->recv_buf[i] == 'i' ){
+		if( thid->recv_buf[i] == '@' ){
 			break;
 		}
-	}												//从消息头遍历到有i的地方
-
+	}
 	for(j=0; j<32; j++){
 		i++;
 		user[j]=thid->recv_buf[i];
@@ -196,8 +196,7 @@ int message_pro(THREAD *thid,char *user)
 	}
 	user[++j]='\0';
 
-	printf("%s\n", user);
-	//printf("hahhahah\n");
+	//printf("%s\n", user);			//测试用户名是否解析正确
 	
 	return 0;
 }
@@ -211,42 +210,67 @@ void *thread1(THREAD *head)
 	char pre_username1[32];
 
 	thid=head->th;						//接受原本thid的值
+	
 	while(1)
 	{
+		memset(thid->recv_buf, 0, sizeof(thid->recv_buf));
 		thid->len=recv(thid->conn_fd, thid->recv_buf, sizeof(thid->recv_buf), 0);
-		if(thid<0){
+
+		//如果操作过程中用户下线
+		if(thid->len == 0)
+		{
+
+			close(thid->conn_fd);		//先关闭再删除
+			//从链表中删除该结点
+			
+			if(thid->next != NULL)
+			{
+				(thid->next1)->next=(thid->next);
+				(thid->next)->next1=(thid->next1);
+				free(thid);
+			}
+
+			else if(thid->next == NULL){
+				(thid->next1)->next=NULL;
+				thid->next1=NULL;
+				free(thid);
+			}
+			pthread_exit(0);
+		}
+		else if(thid->len<0){
 			perror("recv");
 			exit(1);
 		}
 		thid->recv_buf[thid->len-1] = '\0';
-
-		head->present=thid;			//保存当前的接收到的用户消息套接字
-		/*if(thid->recv_buf[0] == 'P'){
-			i=sign_in(thid);
-			if(i==1)
-				break;
-		}	*/					//如果接受到的是用户和密码
-
-
+		head->present=thid;			//保存当前的接收到的用户消息套接字	
 		//printf("%s\n", thid->recv_buf);
+		
+		//如果接收到的是一个文件
 	    if(thid->recv_buf[0] == 'F'){
+		}
 
-		}										//如果接受到的是一个文件
+		//如果接收到的是一条消息
 		else if(thid->recv_buf[0] == 'M' ){
 
-			check=find_match(head);
+			check=find_match(head);				//匹配后的结点指针
 			if(check==NULL){
-				printf("no have such information\n");
-				exit(0);
+				printf("no have such username\n");
 			}
 			else{
-
-				printf("%s\n", check->pre_username);
-				//send(check->conn_fd, thid->recv_buf, sizeof(thid->recv_buf), 0);
-				printf("%d\n", check->conn_fd);
-				exit(0);
+				thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
+				printf("%s12345\n", thid->recv_buf);
+				if (send(check->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
+					my_err("scend", __LINE__);
+					//exit(0);
+				}
+			//	printf("%d\n", check->conn_fd);		//测试找结点有没有找正确
+			//
+				thid->recv_buf[0]='D';				//防止死循环
+			//	exit(0);
 			}
-		}										//如果接受到的是一条消息
+		}
+
+		//接收到的是用户名或者密码
 		else{
 			i=sign_in(thid, flag_recv);
 			if(i==1){
@@ -259,6 +283,8 @@ void *thread1(THREAD *head)
 			}
 		}
 	}
+
+	pthread_exit(0);
 }
 
 int mychat_server(void)
@@ -278,6 +304,8 @@ int mychat_server(void)
 	head=(THREAD *)malloc(sizeof(THREAD));
 	head->len=0;
 	head->next=NULL;
+	head->next1=NULL;
+
 	tail=head;				//用于创建一条带头结点的链表
 
 
@@ -323,11 +351,16 @@ int mychat_server(void)
 		}										//得到代表客户端的套接字
 
 		printf("%d\n", thid->conn_fd);
+
+		//给链表建立双向关系
+		thid->next1=tail;
+		thid->next=NULL;
+
 		tail->next=thid;
 		tail=thid;
-		tail->next=NULL;						//链表连接处
 
 		head->th=thid;
+
 		printf("accept a new clien,ip:%s\n",inet_ntoa(cli_addr.sin_addr));
 		if( pthread_create(&(thid->thread),  NULL, (void *)thread1, head)  != 0){
 				printf("thread create failed\n");
