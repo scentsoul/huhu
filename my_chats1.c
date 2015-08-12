@@ -62,6 +62,7 @@ typedef struct two_point
 
 int name_num=0;			//设置一个全局变量代表账号下标
 int login=0;			// 设置一个全局变量代表接受消息类型是否为登录状态
+int finally=0;				//设置一个全局变量代表下线的是否为尾结点
 
 struct userinfo users[]={
 	{
@@ -247,7 +248,10 @@ void *thread1(THREAD *head)
 
 				(thid->next1)->next=NULL;
 				free(thid);
-				thid->next1=NULL;
+				thid=NULL;
+				finally=1;
+
+			//	thid->next1=NULL;
 
 			}
 
@@ -401,13 +405,15 @@ int mychat_server(void)
 			p=p->next;
 		}
 
+		if(finally==1 ){
 
+			printf("1234\n");
+			tail=tail->next1;
+			finally=0;
+		}
 		thid->next1=tail;
 		thid->next=NULL;
 
-		if(tail != head && tail->next1 == NULL){
-			tail
-		}
 		tail->next=thid;
 		tail=thid;
 
