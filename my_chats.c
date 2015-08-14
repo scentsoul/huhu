@@ -32,6 +32,8 @@
 #define INVALID_USERINFO 'n'	//用户信息无效
 #define VALID_USERINFO   'y'	//用户信息有效
 
+
+
 typedef struct userinfo
 {
 	char username[32];
@@ -57,7 +59,11 @@ typedef struct two_point
 	THREAD *head;
 	THREAD *th;
 }POINT;
+
 int name_num=0;			//设置一个全局变量代表账号下标
+int login=0;			// 设置一个全局变量代表接受消息类型是否为登录状态
+int finally=0;				//设置一个全局变量代表下线的是否为尾结点
+
 struct userinfo users[]={
 	{
 		"linux","unix"
@@ -116,6 +122,8 @@ void send_data(int conn_fd, const char *string)
 {
 	if( send(conn_fd, string, strlen(string), 0) <0 ){
 		my_err("send",__LINE__);
+		close(conn_fd);
+		exit(1);
 	}
 }								//自定义发送数据函数
 
@@ -153,14 +161,11 @@ int sign_in(THREAD *p, int flag_recv)
 }
 
 //查找用户名所对应的结点从而找出套接字
-THREAD * find_match(THREAD *head)
+THREAD * find_match(THREAD *head, char *string)
 {
 	THREAD *h;		
-	char string[32];
 	h=head->next;
 
-	message_pro(head->present, string);  //有改动
-	//puts(string);                        //测试函数调用有没有成功
 	while(h != NULL)
 	{
 		if (strcmp(h->pre_username,string) == 0 ){
@@ -178,13 +183,14 @@ int message_pro(THREAD *thid,char *user)
 	int i, j=0;
 	int str_len=0;
 	char *p;
+	int key=0;
 
-
-	//printf("recv_buf = %s\n", thid->recv_buf);
 	str_len=strlen(thid->recv_buf);
 
+	//找标志@
 	for(i=0; i<str_len; i++){
 		if( thid->recv_buf[i] == '@' ){
+			key=1;
 			break;
 		}
 	}
@@ -196,49 +202,62 @@ int message_pro(THREAD *thid,char *user)
 	}
 	user[++j]='\0';
 
-	//printf("%s\n", user);			//测试用户名是否解析正确
-	
-	return 0;
+	return key;
 }
 void *thread1(THREAD *head)
 {
 	THREAD		*thid;
 	THREAD		*check;
+	THREAD		*p;				//指针用于遍历
 	int			flag=-1;		//标志接受到的是文件还是消息
 	int			i=0;
+	int			key=-1;
 	int flag_recv=USERNAME;
 	char pre_username1[32];
+	char        string[32];		//存储解析的用户名
+
 
 	thid=head->th;						//接受原本thid的值
 	
 	while(1)
 	{
+		p=head->next;					//初始化指针变量
+
 		memset(thid->recv_buf, 0, sizeof(thid->recv_buf));
 		thid->len=recv(thid->conn_fd, thid->recv_buf, sizeof(thid->recv_buf), 0);
 
 		//如果操作过程中用户下线
 		if(thid->len == 0)
 		{
-
-			close(thid->conn_fd);		//先关闭再删除
 			//从链表中删除该结点
 			
 			if(thid->next != NULL)
 			{
+				printf("lalala\n");
 				(thid->next1)->next=(thid->next);
 				(thid->next)->next1=(thid->next1);
 				free(thid);
 			}
 
 			else if(thid->next == NULL){
+
 				(thid->next1)->next=NULL;
-				thid->next1=NULL;
 				free(thid);
+				thid=NULL;
+				finally=1;
+
+
 			}
+
+		//	pthread_detach( pthread_self() );
+
+			//close(thid->conn_fd);		//先关闭再删除
+
 			pthread_exit(0);
 		}
 		else if(thid->len<0){
 			perror("recv");
+			close(thid->conn_fd);		//记得找一下有close的地方
 			exit(1);
 		}
 		thid->recv_buf[thid->len-1] = '\0';
@@ -250,28 +269,47 @@ void *thread1(THREAD *head)
 		}
 
 		//如果接收到的是一条消息
-		else if(thid->recv_buf[0] == 'M' ){
+		else if( login == 1){
+			//根据返回值key=1代表私发，key=0代表群发
+			key=message_pro(head->present, string);
+			if(key==1){
 
-			check=find_match(head);				//匹配后的结点指针
-			if(check==NULL){
-				printf("no have such username\n");
-			}
-			else{
-				thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
-				printf("%s12345\n", thid->recv_buf);
-				if (send(check->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
-					my_err("scend", __LINE__);
-					//exit(0);
+				check=find_match(head, string);				//匹配后的结点指针
+				if(check==NULL){
+
+					if(send(thid->conn_fd, "Nonono\0", 7, 0) <0 ){
+						my_err("send", __LINE__);
+					}
+					printf("no have such username\n");
 				}
-			//	printf("%d\n", check->conn_fd);		//测试找结点有没有找正确
-			//
-				thid->recv_buf[0]='D';				//防止死循环
-			//	exit(0);
+				else{
+					thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
+					//printf("%s12345\n", thid->recv_buf);
+
+					//向指定的用户名发送消息
+					if (send(check->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
+						my_err("scend", __LINE__);
+					}
+					//	printf("%d\n", check->conn_fd);		//测试找结点有没有找正确
+						thid->recv_buf[0]='D';				//防止死循环
+				}
+				continue;
+
+			}else if(key==0){
+				while(p != NULL){
+					thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
+					if (send(p->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
+						my_err("scend", __LINE__);
+					}
+				//	printf("%s\n", p->pre_username);
+					p=p->next;
+				}
 			}
+
 		}
 
 		//接收到的是用户名或者密码
-		else{
+		else if(login==0){
 			i=sign_in(thid, flag_recv);
 			if(i==1){
 				strcpy(pre_username1,thid->recv_buf );
@@ -279,7 +317,7 @@ void *thread1(THREAD *head)
 			}
 			else if(i==2){
 				strcpy(thid->pre_username,pre_username1);
-			//	break;							//登录成功跳出循环
+				login=1;						//登录成功改变全局变量
 			}
 		}
 	}
@@ -302,8 +340,9 @@ int mychat_server(void)
 	THREAD *tail;
 	THREAD *head;
 	head=(THREAD *)malloc(sizeof(THREAD));
-	head->len=0;
-	head->next=NULL;
+	head->len=0;		
+	THREAD *p;
+	//head->next=NULL;
 	head->next1=NULL;
 
 	tail=head;				//用于创建一条带头结点的链表
@@ -350,9 +389,25 @@ int mychat_server(void)
 			my_err("accept",__LINE__);
 		}										//得到代表客户端的套接字
 
+		login=0;								//初始化全局变量保证每次先登录
 		printf("%d\n", thid->conn_fd);
 
 		//给链表建立双向关系
+	
+		p=head->next;
+		/*printf("\n打印链表\n");
+		while(p != NULL)
+		{
+			printf("%s\n", p->pre_username);
+			p=p->next;
+		}
+*/
+		if(finally==1 ){
+
+			printf("1234\n");
+			tail=tail->next1;
+			finally=0;
+		}
 		thid->next1=tail;
 		thid->next=NULL;
 
@@ -361,7 +416,7 @@ int mychat_server(void)
 
 		head->th=thid;
 
-		printf("accept a new clien,ip:%s\n",inet_ntoa(cli_addr.sin_addr));
+		printf("accept a new client,ip:%s\n",inet_ntoa(cli_addr.sin_addr));
 		if( pthread_create(&(thid->thread),  NULL, (void *)thread1, head)  != 0){
 				printf("thread create failed\n");
 				exit(1);
@@ -373,6 +428,8 @@ int main(void)
 {
 	printf("hah\n");
     mychat_server();
-	
+
+
+
 	return 0;
 }
