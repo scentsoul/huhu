@@ -24,6 +24,9 @@
 #include"my_recv.h"
 
 int flag_key=1;			//flag_key=1代表消息发送对象存在
+int flag_login=0;		//flag_login=0代表可以注册
+int pass=0;				//pass=0代表两次输入密码一致
+int	input_l=0;			//input_l=0代表输入信息正确
 
 #define INVALID_USERINFO   'n'     //用户信息无效
 #define VALID_USERINFO	   'y'     //用户信息有效
@@ -36,7 +39,10 @@ typedef struct th
 	char buf1[128];
 	char username[32];
 }THREAD;
-
+/**
+ *函数声明部分
+ */
+void my_register(int conn_fd);
 int get_userinfo(char *buf, int len)
 {
 	int i;
@@ -65,8 +71,8 @@ char *input_userinfo(int conn_fd, const char *string)
 	char *username;
 	char flag_userinfo;
 
+
 	//输入用户信息直到正确为止
-	
 	do{
 		printf("%s:",string);
 		if( get_userinfo(input_buf, 32) <0 ){
@@ -76,13 +82,10 @@ char *input_userinfo(int conn_fd, const char *string)
 		if( send(conn_fd, input_buf, strlen(input_buf), 0) <0){
 			my_err("send", __LINE__);
 		}
-		//从套接字上读取一次数据
-		if( my_recv(conn_fd, recv_buf, sizeof(recv_buf)) <0 ){
-			printf("data is too long\n");
-			exit(1);
-		}
 
-		if(recv_buf[0]==VALID_USERINFO){
+		usleep(1000);
+		if(input_l==1){
+			input_l=0;
 			flag_userinfo=VALID_USERINFO;
 		}else{
 			printf("%s error, input again", string);
@@ -111,9 +114,6 @@ void wchat_records(char *filename, char *records)
 	if( write(fd, records, strlen(records)) != strlen(records) ){
 		my_err("filewrite", __LINE__);
 	}
-
-	//fflush(stdin);
-
 	close(fd);
 }
 //接收数据的线程
@@ -129,17 +129,37 @@ void * thread2(int conn_fd)
 	}
 
 	//如果服务器端连接关闭
-	else if(len==0){
+	 if(len==0){
 		printf("no connection\n");
 		close(conn_fd);
 		exit(1);
 		}
 
-	if( strcmp(buf1, "Nonono\0") == 0){
-		flag_key=0;								//flag_key==0代表消息发送对象不存在
+	//接受的是登录返回的消息则不输出
+	else if(buf1[0]==VALID_USERINFO){
+		input_l=1;
 	}
-	printf("%s\n", buf1);
+
+	else{
+		//接受的是私聊返回的消息
+		if( strcmp(buf1, "Nonono\0") == 0){
+			flag_key=0;								//flag_key==0代表消息发送对象不存在
+		}
+		//接受的是注册返回的消息
+		else if( strcmp(buf1, "Username Already exists.Please choose another\0") ==0 ){
+			flag_login=1;
+		}
+	
+		//接受的是登录返回的消息
+		else if(buf1[0]==VALID_USERINFO){
+			input_l=1;
+		}
+
+		//输出接受到的消息
+		printf("%s\n", buf1);
+	}
 	memset(buf1, 0, sizeof(buf1));
+
 	}
 }
 
@@ -183,14 +203,12 @@ void * thread1(THREAD *th)
 	char acc[32];						//接受消息的用户名
 	char info[128];						//纯消息
 
-
 	strcpy(filename_s, "s_records");		//设置文件名
 	strcpy(filename_q, "q_records");
 
 	while(1){
 
 		memset(recv_buf, 0, strlen(recv_buf));							//清零
-
 		//输入消息内容
 		if( ( key=get_userinfo(recv_buf, 128) ) <0 ){
 			my_err("get_userinfo", __LINE__);
@@ -214,13 +232,11 @@ void * thread1(THREAD *th)
 			strcat(file_w,"@\0");				
 			strcat(file_w, acc);				//连接接消息的人
 
-
 			strcat(file_w, ":\0");				//消息分割处
 			strcat(file_w, info);				//连接消息
 			strcat(file_w, "_\n\0");			//结尾并加换行符
 
 			wchat_records(filename_s, file_w);	//
-
 		}
 
 		//写入文件
@@ -233,9 +249,72 @@ void * thread1(THREAD *th)
 
 		file_w[strlen(file_w)+1]='\0';
 		file_w[0]='\0';
-
 	}
 }
+
+
+//用户名注册函数
+void my_register(int conn_fd)
+{
+	char press;							//注册时用
+	char name[32];						//注册时输入的用户名
+	char password[32];					//注册时输入的密码
+	char password1[32];					//再次输入密码
+	int  in_put=1;						//如果用户名存在考虑输入其他用户名
+	int  stop=0;						//用于阻塞的变量到时候可能会用
+
+	printf("Press y or Y to Register:");
+	scanf("%c", &press);
+	if(press == 'y' || press == 'Y'){
+		while(in_put==1)
+		{
+			if( send(conn_fd, "register\0", strlen("register\0")+1 ,0) <0 ){
+				my_err("send", __LINE__);
+			}
+			//发送用户名
+			printf("\nPlease input a username:");
+			scanf("%s", name);
+			if( send(conn_fd, name, strlen(name)+1, 0) <0 ){
+				my_err("send", __LINE__);
+			}
+
+			//停止一下下等待接受到用户是否存在的信息
+			usleep(1000);
+			//如果可以注册
+			if(flag_login == 0){
+				while(1)
+				{
+					printf("\nPlease input the password:");
+					scanf("%s", password);
+					printf("\nPlease input again:");
+					scanf("%s", password1);
+
+					//如果两次输入的密码匹配
+					if( strcmp(password, password1) ==0 ){
+						if( send(conn_fd, password, strlen(password)+1, 0) <0 ){
+							my_err("send", __LINE__);
+						}
+						if( send(conn_fd, "achivement\0", strlen("achivement")+1, 0) <0 ){
+							my_err("send", __LINE__);
+						}
+						break;
+					}
+					else{
+						printf("two input password dose not match ,again\n");
+					}	
+				}
+			}
+			//将全局变量设置为可以注册的情况
+		
+			usleep(100);					//停一下下等待消息
+			flag_login=0;							
+			printf("press 1 register again:");
+			scanf("%d", &in_put);
+		}
+	}
+
+}
+
 int main(int argc, char ** argv)
 {
 	int i;
@@ -301,37 +380,35 @@ int main(int argc, char ** argv)
 		my_err("connect", __LINE__);
 	}
 
-	//输入用户名和密码
+	//创建一个线程接受数据
+	pthread_create(&thid2, NULL, (void*)thread2, conn_fd);
+	//用户注册
+        my_register(conn_fd);
+		printf("======================\n");
+		getchar();
+
+
+	//用户登录部分输入用户名和密码
 	string=input_userinfo(conn_fd, "username");
+
 	strcpy(th->username, string);
 	th->username[strlen(th->username)-1]='\0';		//去掉'\n' 获取用户名
 
 	input_userinfo(conn_fd, "password");
-
-
-	//读取欢迎信息并打印
-	if( (ret=my_recv(conn_fd, recv_buf, sizeof(recv_buf)))  <0){
-		printf("data is too long\n");
-		exit(1);
-	}
-	for(i=0; i<ret; i++){
+	
+	/*for(i=0; i<ret; i++){
 		printf("%c",recv_buf[i]);
 	}
-
-	fflush(stdout);
-	printf("\n");
-	//创建一个线程接受数据
-	pthread_create(&thid2, NULL, (void*)thread2, conn_fd);
+*/
 
 	//创建一个线程发送数据
 	th->conn_fd=conn_fd;
 	pthread_create(&thid1, NULL, (void *)thread1, th);
-
+	
 	while(1){
 		sleep(1);
 	}
 	close(conn_fd);
 	return 0;
 	
-	//pthread_exit(0);
 }
