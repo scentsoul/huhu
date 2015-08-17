@@ -21,6 +21,7 @@
 #include<netinet/in.h>
 #include<fcntl.h>
 #include<sys/stat.h>
+#include<sys/stat.h>
 #include"my_recv.h"
 
 int flag_key=1;			//flag_key=1代表消息发送对象存在
@@ -42,7 +43,11 @@ typedef struct th
 /**
  *函数声明部分
  */
+int userinfo_mat(char *f_username, char *s_username);
 void my_register(int conn_fd);
+void read_list();					//读取在线列表
+
+
 int get_userinfo(char *buf, int len)
 {
 	int i;
@@ -190,6 +195,87 @@ int message_pro(char *recv_buf, char *user ,char *info)
 
 	return key;
 }
+
+int userinfo_mat(char *f_username, char *s_username)
+{
+	FILE *fp;			//文件指针
+	int ret;			//ret=0表示没有聊天记录
+	char ch='a';				//遍历文件
+	char name1[128];			//从文件获得的发送方名
+	char name2[128];			//从文件获得接收方用户名
+	int i,j, k;
+	char buf[128];		//存一条消息记录
+	int x=0,y=0;		//逻辑值
+
+
+	fp=fopen("s_records", "rt");
+	if(fp==NULL){
+		my_err("fopen", __LINE__);
+	}
+	while( ch != EOF){
+
+		i=0;
+		j=0;
+		k=0;
+
+		//找出第一个名字
+		while( (ch=fgetc(fp) ) !='@'){
+
+			if( ch != '_' && ch !='\n' ){
+				name1[i++]=ch;
+			}
+		}
+		name1[i]='\0';
+
+		//找出第二个名字
+		while( (ch=fgetc(fp) ) != ':'){
+		name2[j++]=ch;
+		}
+		name2[j]='\0';
+
+		//找出内容
+		x=  ( !(strcmp(f_username, name1) ) &&  !( strcmp(s_username, name2) ) );
+		y=  ( !(strcmp(f_username, name2) ) &&  !( strcmp(s_username, name1) ) );
+		if( x || y  ){
+			while(  (ch=fgetc(fp)) != '_'){
+				buf[k++]=ch;
+			}
+			buf[k]='\0';
+			printf("%s@%s:%s\n", name1, name2, buf);
+		}
+
+		//跳去多余不要的内容
+		else{
+			while( (ch=fgetc(fp))  != '_'){
+
+			}
+
+		}	
+
+		//排除结尾符
+		if( (ch=fgetc(fp)) == EOF){
+			break;
+		}
+		if( (ch=fgetc(fp)) == EOF){
+			break;
+		}
+	}
+	fclose(fp);
+}
+
+void read_list()
+{
+	FILE *fp;
+	char name[32];		//用来存储读取的用户名
+	char password[32];	//用来存储读取的用户密码
+	fp=fopen("list", "rt");
+	if(fp==NULL){
+		my_err("fopen", __LINE__);
+	}
+	while( fscanf(fp, "%s %s", name, password) != EOF){
+		printf("%s %s\n", name, password);
+	}
+}
 //发送数据的线程
 void * thread1(THREAD *th)
 {
@@ -202,6 +288,7 @@ void * thread1(THREAD *th)
 	int key=0;							//key=1代表存在@
 	char acc[32];						//接受消息的用户名
 	char info[128];						//纯消息
+	char rec_name[32];					// 查聊天记录时的用户名
 
 	strcpy(filename_s, "s_records");		//设置文件名
 	strcpy(filename_q, "q_records");
@@ -218,7 +305,19 @@ void * thread1(THREAD *th)
 		my_err("send", __LINE__);
 		}
 
+		//##代表获取聊天记录
+		if( recv_buf[0] =='#' &&  recv_buf[1] == '#'){
+			printf("输入要获取聊天记录的对象:\n");
+			scanf("%s", rec_name);
+			userinfo_mat(th->username, rec_name);
+			continue;
+		}
 
+		//$$代表查看在线列表
+		else if(recv_buf[0] == '*' && recv_buf[1] == '*'){
+			read_list();
+			continue;
+		}
         key=message_pro(recv_buf, acc, info);
 		acc[strlen(acc)-1]='\0';				//去掉\n
 
@@ -313,10 +412,12 @@ void my_register(int conn_fd)
 		}
 	}
 
+
 }
 
 int main(int argc, char ** argv)
 {
+
 	int i;
 	int ret;						
 	int conn_fd;					
@@ -396,10 +497,9 @@ int main(int argc, char ** argv)
 
 	input_userinfo(conn_fd, "password");
 	
-	/*for(i=0; i<ret; i++){
-		printf("%c",recv_buf[i]);
-	}
-*/
+	//for(i=0; i<ret; i++){
+	//	printf("%c",recv_buf[i]);
+//	}
 
 	//创建一个线程发送数据
 	th->conn_fd=conn_fd;

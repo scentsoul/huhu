@@ -47,11 +47,13 @@ typedef struct th
 	int len;			//获取文件的字节数
 	pthread_t thread;		//线程号
 	int conn_fd;		//一个已连接的套接字
-	struct th *next;
-	struct th *next1;
+	struct th *next;			//指向右边
+	struct th *next1;			//指向左边
 	char	pre_username[32];	//保存用户名
+	char	pre_password[32];	//保存用户密码
 	struct th *th;			//一个指针指向当前位置
 	struct th *present;
+	int stat;				//stat=1代表用户在线
 }THREAD;		
 
 typedef struct two_point
@@ -65,37 +67,20 @@ int login=0;			// 设置一个全局变量代表接受消息类型是否为登�
 int finally=0;				//设置一个全局变量代表下线的是否为尾结点
 int flag_login=0;			//flag_login=1代表接受的是注册的消息
 
-struct userinfo users[]={
-	{
-		"linux","unix"
-	},
-	{
-		"4057","4058"
-	},
-	{
-		"clh","clh"
-	},
-	{
-		"xl","xl"
-	},
-	{
-		" "," "//以一个只含空格的字符串作为数组结束的标志
-	}
-};
-
-
 /*
  *函数声明部分
  *
  */
 void my_err(const char *err_string,int line);		//错误处理
-int find_name(const char *name);					//查找用户名
+int find_name(const char *name, USERINFO users[]);					//查找用户名
 void *thread1(THREAD *head);						//创建一个线程
 int mychat_server(void);							//主要操控函数
 int message_pro(THREAD *thid,char *user);			//线程部分用户名处理
 int userinfo_match(char *re_username);				//注册部分用户名匹配
 int regis_account(char *re_username);				//找新用户名是否存在并回应相应信息
 int my_filewrite(USERINFO user_ss);					//将新用户名及密码写入文件
+int write_list(THREAD * head);						//将在线列表写入文件
+int read_user(USERINFO user[]);					//从文件中读取用户信息用于登录
 
 
 //自定义的错误处理函数
@@ -107,7 +92,7 @@ void my_err(const char *err_string,int line)
 }
 
 //查找用户名是否存在，存在返回该用户名的下标，不存在则返回-1，出错返回-2
-int find_name(const char *name)
+int find_name(const char *name, USERINFO users[])
 {
 	int i;
 	if(name==NULL){
@@ -132,11 +117,11 @@ void send_data(int conn_fd, const char *string)
 	}
 }								//自定义发送数据函数
 
-int sign_in(THREAD *p, int flag_recv)
+int sign_in(THREAD *p, int flag_recv, USERINFO users[])
 {	
 	//接受到的是用户名
 	if(flag_recv==USERNAME){
-		name_num=find_name(p->recv_buf);
+		name_num=find_name(p->recv_buf, users);
 		switch(name_num){
 			case -1:
 				send_data(p->conn_fd, "n\n");
@@ -209,6 +194,45 @@ int message_pro(THREAD *thid,char *user)
 
 	return key;
 }
+
+int write_list(THREAD * head)
+{
+	FILE *fp;
+	THREAD *h=head->next;
+
+	fp=fopen("list", "w");
+	if(fp==NULL){
+		my_err("fopen", __LINE__);
+	}
+
+	while( h != NULL){
+
+		if(h->stat==1){
+			fprintf(fp, "%s %s\n", h->pre_username, h->pre_password);
+		}
+		h=h->next;
+	}
+
+	fclose(fp);
+	return 0;
+}
+int  read_user(USERINFO user[])
+{
+	FILE *fp;
+	int i=0;
+	
+	fp=fopen("acc_pass", "rt");
+	if(fp==NULL){
+		my_err("fopen", __LINE__);
+	}
+	while( fscanf(fp, "%s %s", user[i].username, user[i].password) != EOF){
+		i++;
+	}
+
+	fclose(fp);
+
+	return i;
+}
 void *thread1(THREAD *head)
 {
 	THREAD		*thid;
@@ -222,10 +246,13 @@ void *thread1(THREAD *head)
 	char        string[32];		//存储解析的用户名
 	int			low=0;			//表示用户名和密码的下标
 	USERINFO	user_ss;		//定义一个表示用户和密码的结构体变量
-
+	USERINFO	users[100];		//从文件读取已注册用户
+	int			ret=0;			//数组新注册用户的下标
 
 	thid=head->th;						//接受原本thid的值
-	
+	thid->stat=0;
+
+	ret=read_user(users);					//从文件中读取用户信息用于登录
 	while(1)
 	{
 		p=head->next;					//初始化指针变量
@@ -246,7 +273,6 @@ void *thread1(THREAD *head)
 			}
 
 			else if(thid->next == NULL){
-
 				(thid->next1)->next=NULL;
 				free(thid);
 				thid=NULL;
@@ -254,12 +280,22 @@ void *thread1(THREAD *head)
 			}
 
 		//	pthread_detach( pthread_self() );
-
 			//close(thid->conn_fd);		//先关闭再删除
-
 			pthread_exit(0);
 		}
 
+		//查看聊天记录
+		else if(thid->recv_buf[0] == '#' && thid->recv_buf[1]  == '#' || thid->recv_buf[0] == '\n'){
+			continue;
+		}
+
+		//查看在线列表
+		else if(thid->recv_buf[0] == '*' && thid->recv_buf[1]  == '*'){
+
+			//write_list(head);
+			continue;
+		}
+		
 		else if(thid->len<0){
 			perror("recv");
 			close(thid->conn_fd);		//记得找一下有close的地方
@@ -269,10 +305,7 @@ void *thread1(THREAD *head)
 		thid->recv_buf[thid->len-1] = '\0';
 		head->present=thid;			//保存当前的接收到的用户消息套接字	
 		//printf("%s\n", thid->recv_buf);
-		
-		//如果接收到的是一个文件
 
-		//printf("%s\n", thid->recv_buf);
 	    if( strcmp(thid->recv_buf, "register") == 0){
 			flag_login=1;
 		}
@@ -280,6 +313,12 @@ void *thread1(THREAD *head)
 		//用achivement代表确认注册然后往文件里面写
 		else if( strcmp(thid->recv_buf, "achivement") == 0){
 			my_filewrite(user_ss);
+			
+			strcpy(users[ret].username, user_ss.username);
+			strcpy(users[ret].password, user_ss.password);
+
+			ret++;
+			//read_user(users);		//重新读取文件信息给数组
 			flag_login=0;
 		}
 
@@ -354,13 +393,18 @@ void *thread1(THREAD *head)
 
 		//接收到的是用户名或者密码
 		else if(login==0){
-			i=sign_in(thid, flag_recv);
+			i=sign_in(thid, flag_recv, users);
 			if(i==1){
 				strcpy(pre_username1,thid->recv_buf );
 				flag_recv = PASSWORD;			//账户验证成功
 			}
 			else if(i==2){
+
+				//将密码和用户名赋值给链表的结点a
+				strcpy(thid->pre_password, thid->recv_buf);
 				strcpy(thid->pre_username,pre_username1);
+				thid->stat=1;
+				write_list(head);
 				login=1;						//登录成功改变全局变量
 			}
 		}
