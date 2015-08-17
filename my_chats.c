@@ -56,11 +56,6 @@ typedef struct th
 	int stat;				//stat=1代表用户在线
 }THREAD;		
 
-typedef struct two_point
-{
-	THREAD *head;
-	THREAD *th;
-}POINT;
 
 int name_num=0;			//设置一个全局变量代表账号下标
 int login=0;			// 设置一个全局变量代表接受消息类型是否为登录状态
@@ -86,8 +81,22 @@ int read_user(USERINFO user[]);					//从文件中读取用户信息用于登录
 //自定义的错误处理函数
 void my_err(const char *err_string,int line)
 {
+	FILE *fp;
+
 	fprintf(stderr, "line:%d ",line);
 	perror(err_string);
+
+	fp=fopen("error_log", "a+");
+	if(fp==NULL){
+
+		printf("error:92\n");
+		exit(1);
+	}
+
+	fprintf(fp, "line:%d ",line);
+	fprintf(fp, "%s:", err_string);
+	fprintf(fp, "%d\n", __LINE__);
+
 	exit(1);
 }
 
@@ -434,7 +443,6 @@ int mychat_server(void)
 	struct sockaddr_in cli_addr;
 	socklen_t	clilen;
 	int ret;
-	POINT pt;
 
 
 	THREAD *thid;			//定义一个指向结构体的指针

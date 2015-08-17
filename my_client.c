@@ -11,7 +11,6 @@
 #include<signal.h>
 #include<unistd.h>
 #include<stdlib.h>
-#include<assert.h>
 #include<sys/socket.h>
 #include<string.h>
 #include<sys/types.h>
@@ -22,6 +21,8 @@
 #include<fcntl.h>
 #include<sys/stat.h>
 #include<sys/stat.h>
+#include <assert.h>
+#include <termios.h>
 #include"my_recv.h"
 
 int flag_key=1;			//flag_key=1代表消息发送对象存在
@@ -47,29 +48,47 @@ int userinfo_mat(char *f_username, char *s_username);
 void my_register(int conn_fd);
 void read_list();					//读取在线列表
 
-
+//输入账号和消息
 int get_userinfo(char *buf, int len)
 {
 	int i;
 	int c;
 	int key=0;		//标志输入的是私聊还是群消息
-
 	if(buf==NULL){
 		return -1;
 	}
 	i=0;
-
 	while( ( (c=getchar() ) !='\n') && (c !=EOF ) &&(i<len-2) ){
 		buf[i++]=c;
 		key=1;
 	}
 	buf[i++]='\n';
 	buf[i++]='\0';
-
 	return key;
 }
 
-char *input_userinfo(int conn_fd, const char *string)
+//输入密码
+int get_userinfo1(char *buf, int len)
+{
+	int i;
+	int c;
+	int key=0;		//标志输入的是私聊还是群消息
+	if(buf==NULL){
+		return -1;
+	}
+	i=0;
+	while( ( (c=getch() ) !='\n') && (c !=EOF ) &&(i<len-2) ){
+		putchar('*');
+		buf[i++]=c;
+		key=1;
+	}
+	buf[i++]='\n';
+	buf[i++]='\0';
+	putchar('\n');
+	return key;
+}
+//登录时输入信息，i=1代表用户名，i=2代表密码
+char *input_userinfo(int conn_fd, const char *string, int i)
 {
 	char input_buf[32];
 	char recv_buf[BUFSIZE];
@@ -80,10 +99,20 @@ char *input_userinfo(int conn_fd, const char *string)
 	//输入用户信息直到正确为止
 	do{
 		printf("%s:",string);
-		if( get_userinfo(input_buf, 32) <0 ){
-			printf("error return from get_userinfo\n");
-			exit(1);
+
+		if(i==1){
+			if( get_userinfo(input_buf, 32) <0 ){
+				printf("error return from get_userinfo\n");
+				exit(1);
+			}
+		}else if(i==2){
+			if( get_userinfo1(input_buf, 32) <0 ){
+				printf("error return from get_userinfo\n");
+				exit(1);
+			}
 		}
+
+
 		if( send(conn_fd, input_buf, strlen(input_buf), 0) <0){
 			my_err("send", __LINE__);
 		}
@@ -122,6 +151,25 @@ void wchat_records(char *filename, char *records)
 	close(fd);
 }
 //接收数据的线程
+
+int getch(void)						
+{
+        int c=0;
+        struct termios org_opts, new_opts;
+        int res=0;
+        //-----  store old settings -----------
+        res=tcgetattr(STDIN_FILENO, &org_opts);
+        assert(res==0);
+        //---- set new terminal parms --------
+        memcpy(&new_opts, &org_opts, sizeof(new_opts));
+        new_opts.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL | ECHOPRT | ECHOKE | ICRNL);
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_opts);
+        c=getchar();
+            //------  restore old settings ---------
+        res=tcsetattr(STDIN_FILENO, TCSANOW, &org_opts);assert(res==0);
+        return c;
+}
+
 void * thread2(int conn_fd)
 {
 	char buf1[128];;
@@ -361,6 +409,8 @@ void my_register(int conn_fd)
 	char password1[32];					//再次输入密码
 	int  in_put=1;						//如果用户名存在考虑输入其他用户名
 	int  stop=0;						//用于阻塞的变量到时候可能会用
+	char ch;							//用于输入密码
+	int	 i=0;
 
 	printf("Press y or Y to Register:");
 	scanf("%c", &press);
@@ -383,10 +433,32 @@ void my_register(int conn_fd)
 			if(flag_login == 0){
 				while(1)
 				{
+					getchar();
 					printf("\nPlease input the password:");
-					scanf("%s", password);
+				
+					//getchar();
+					for(i=0; i<31; i++){
+						ch=getch();
+						if(ch=='\n')
+							break;
+						putchar('*');
+						password[i]=ch;
+					}
+					password[i]='\0';
+
+					//getchar();
+					//scanf("%s", password);
 					printf("\nPlease input again:");
-					scanf("%s", password1);
+				//	getchar();
+					for(i=0; i<31; i++){
+						ch=getch();
+						if(ch=='\n')
+							break;
+						putchar('*');
+						password1[i]=ch;
+					}
+					password1[i]='\0';
+					//scanf("%s", password1);
 
 					//如果两次输入的密码匹配
 					if( strcmp(password, password1) ==0 ){
@@ -407,7 +479,7 @@ void my_register(int conn_fd)
 		
 			usleep(100);					//停一下下等待消息
 			flag_login=0;							
-			printf("press 1 register again:");
+			printf("\npress 1 register again:");
 			scanf("%d", &in_put);
 		}
 	}
@@ -490,12 +562,12 @@ int main(int argc, char ** argv)
 
 
 	//用户登录部分输入用户名和密码
-	string=input_userinfo(conn_fd, "username");
+	string=input_userinfo(conn_fd, "username", 1);
 
 	strcpy(th->username, string);
 	th->username[strlen(th->username)-1]='\0';		//去掉'\n' 获取用户名
 
-	input_userinfo(conn_fd, "password");
+	input_userinfo(conn_fd, "password", 2);
 	
 	//for(i=0; i<ret; i++){
 	//	printf("%c",recv_buf[i]);
