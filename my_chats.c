@@ -208,7 +208,7 @@ int write_list(THREAD * head)
 	while( h != NULL){
 
 		if(h->stat==1){
-			fprintf(fp, "%s %s\n", h->pre_username, h->pre_password);
+			fprintf(fp, "%s\n", h->pre_username);
 		}
 		h=h->next;
 	}
@@ -248,9 +248,12 @@ void *thread1(THREAD *head)
 	USERINFO	user_ss;		//定义一个表示用户和密码的结构体变量
 	USERINFO	users[100];		//从文件读取已注册用户
 	int			ret=0;			//数组新注册用户的下标
+	FILE		*fp;			//文件指针
+	char		name[32];		//用来储存用户名
 
 	thid=head->th;						//接受原本thid的值
 	thid->stat=0;
+
 
 	ret=read_user(users);					//从文件中读取用户信息用于登录
 	while(1)
@@ -292,7 +295,17 @@ void *thread1(THREAD *head)
 		//查看在线列表
 		else if(thid->recv_buf[0] == '*' && thid->recv_buf[1]  == '*'){
 
-			//write_list(head);
+			fp=fopen("list", "rt");
+			if(fp==NULL){
+				my_err("fopen", __LINE__);
+			}
+
+			while( fscanf(fp, "%s", name) != EOF){
+				usleep(10);
+				if( send(thid->conn_fd, name, strlen(name)+1, 0) <0 ){
+					my_err("send", __LINE__);
+				}
+			}
 			continue;
 		}
 		

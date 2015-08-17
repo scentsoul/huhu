@@ -315,7 +315,7 @@ void * thread1(THREAD *th)
 
 		//$$代表查看在线列表
 		else if(recv_buf[0] == '*' && recv_buf[1] == '*'){
-			read_list();
+			//read_list();
 			continue;
 		}
         key=message_pro(recv_buf, acc, info);
