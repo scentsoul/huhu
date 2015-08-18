@@ -261,11 +261,19 @@ int userinfo_mat(char *f_username, char *s_username)
 	int i,j, k;
 	char buf[128];		//存一条消息记录
 	int x=0,y=0;		//逻辑值
+	int fd;				//打开文件时用
+	int key=0;			//key==1代表聊天记录存在
 
 
-	fp=fopen("s_records", "rt");
+	fp=fopen("s_records", "a+");
 	if(fp==NULL){
 		my_err("fopen", __LINE__);
+	}
+
+	if( ( ch=fgetc(fp) )  == EOF){
+		printf("暂时没有任何聊天消息哦，至少先说一句吧...\n");
+
+		return -1;
 	}
 	while( ch != EOF){
 
@@ -290,6 +298,8 @@ int userinfo_mat(char *f_username, char *s_username)
 		x=  ( !(strcmp(f_username, name1) ) &&  !( strcmp(s_username, name2) ) );
 		y=  ( !(strcmp(f_username, name2) ) &&  !( strcmp(s_username, name1) ) );
 		if( x || y  ){
+
+			k=1;
 			while(  (ch=fgetc(fp)) != '_'){
 				buf[k++]=ch;
 			}
@@ -312,6 +322,10 @@ int userinfo_mat(char *f_username, char *s_username)
 		if( (ch=fgetc(fp)) == EOF){
 			break;
 		}
+	}
+
+	if(k==0){
+		printf("抱歉，您和该用户暂时没有聊天记录\n");
 	}
 	fclose(fp);
 }
@@ -346,6 +360,7 @@ void * thread1(THREAD *th)
 
 	printf("操作命令如下:\n\n");
 	printf("$$:  以管理员身份操作,只有管理员能使用此功能\n");
+	printf("$$:	 第二次输入此命令时暂停管理员身份\n");
 	printf("**:  查看在线列表\n");
 	printf("##:  查看聊天记录\n");
 
@@ -398,6 +413,13 @@ void * thread1(THREAD *th)
 				usleep(1000);
 				continue;
 			}
+
+			//查看所有人的聊天记录
+			if( recv_buf[0] == '<' && recv_buf[1] == '<'){
+
+			}
+
+
 		}
 
 
@@ -440,7 +462,7 @@ void * thread1(THREAD *th)
 		}
 
 		//写入文件
-		else{
+		else if(key != 1){
 
 			strcat(file_w, th->username);
 			strcat(file_w, ":\0");
