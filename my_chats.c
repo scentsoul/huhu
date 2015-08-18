@@ -61,6 +61,7 @@ int name_num=0;			//设置一个全局变量代表账号下标
 int login=0;			// 设置一个全局变量代表接受消息类型是否为登录状态
 int finally=0;				//设置一个全局变量代表下线的是否为尾结点
 int flag_login=0;			//flag_login=1代表接受的是注册的消息
+int delete=0;				//identity=代表管理员身份	
 
 /*
  *函数声明部分
@@ -104,12 +105,12 @@ void my_err(const char *err_string,int line)
 int find_name(const char *name, USERINFO users[])
 {
 	int i;
+	int ret;
 	if(name==NULL){
 		printf("in find_name, NULL pointer\n");
 		return -2;
 	}
-	for(i=0; users[i].username[0] != ' '; i++ )
-	{
+	for(i=0; users[i].username[0] != '\0'; i++ ){
 		if( strcmp(users[i].username, name) ==0  ){
 			return i;
 		}
@@ -263,14 +264,22 @@ void *thread1(THREAD *head)
 	thid=head->th;						//接受原本thid的值
 	thid->stat=0;
 
-
+	login=0;
 	ret=read_user(users);					//从文件中读取用户信息用于登录
 	while(1)
 	{
 		p=head->next;					//初始化指针变量
 
+		thid->recv_buf[thid->len-1] = '\0';
+
+		//printf("%s\n", thid->recv_buf);
 		memset(thid->recv_buf, 0, sizeof(thid->recv_buf));
-		thid->len=recv(thid->conn_fd, thid->recv_buf, sizeof(thid->recv_buf), 0);
+		thid->len=recv(thid->conn_fd, thid->recv_buf, sizeof(thid->recv_buf),0);
+
+		//实施踢人
+		if(thid->recv_buf[0] == '$' && thid->recv_buf[1] == '$'){
+			thid->len=0;
+		}
 
 		//如果操作过程中用户下线
 		if(thid->len == 0)
@@ -293,6 +302,8 @@ void *thread1(THREAD *head)
 
 		//	pthread_detach( pthread_self() );
 			//close(thid->conn_fd);		//先关闭再删除
+
+			write_list(head);
 			pthread_exit(0);
 		}
 
@@ -317,7 +328,32 @@ void *thread1(THREAD *head)
 			}
 			continue;
 		}
-		
+	
+		//接收的是踢人的提示
+		else if(thid->recv_buf[0] == '^' && thid->recv_buf[1] == '^'){
+			delete=1;
+			continue;
+		}
+		else if(delete==1){
+
+			check=find_match(head, thid->recv_buf);				//找到要踢的人
+			if(check==NULL){
+				if(send(thid->conn_fd, "Nonono\0", 7, 0) <0 ){
+					my_err("send", __LINE__);
+				}
+				
+				printf("no have such username\n");
+			}
+			else{
+				if (send(check->conn_fd, "^^", strlen("^^")+1, 0) <0 ){
+					my_err("scend", __LINE__);
+				}
+			}
+
+			delete=0;
+			continue;
+		}
+	
 		else if(thid->len<0){
 			perror("recv");
 			close(thid->conn_fd);		//记得找一下有close的地方
@@ -340,7 +376,6 @@ void *thread1(THREAD *head)
 			strcpy(users[ret].password, user_ss.password);
 
 			ret++;
-			//read_user(users);		//重新读取文件信息给数组
 			flag_login=0;
 		}
 
@@ -373,7 +408,7 @@ void *thread1(THREAD *head)
 		}
 
 		//如果接收到的是一条消息
-		else if( login == 1){
+		if( login == 1){
 			//根据返回值key=1代表私发，key=0代表群发
 			key=message_pro(head->present, string);
 			if(key==1){
@@ -411,10 +446,12 @@ void *thread1(THREAD *head)
 				}
 			}
 
+			continue;
 		}
-
+	
+		fflush(stdin);
 		//接收到的是用户名或者密码
-		else if(login==0){
+		if(login==0){
 			i=sign_in(thid, flag_recv, users);
 			if(i==1){
 				strcpy(pre_username1,thid->recv_buf );
@@ -428,6 +465,7 @@ void *thread1(THREAD *head)
 				thid->stat=1;
 				write_list(head);
 				login=1;						//登录成功改变全局变量
+
 			}
 		}
 	}

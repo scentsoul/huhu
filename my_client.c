@@ -29,11 +29,12 @@ int flag_key=1;			//flag_key=1代表消息发送对象存在
 int flag_login=0;		//flag_login=0代表可以注册
 int pass=0;				//pass=0代表两次输入密码一致
 int	input_l=0;			//input_l=0代表输入信息正确
+int identity=0;			// 代表管理员身份
+int go=0;				//go=1代表被强迫下线
 
 #define INVALID_USERINFO   'n'     //用户信息无效
 #define VALID_USERINFO	   'y'     //用户信息有效
 
-//获取用户输入存入到buf，buf的长度为len，用户输入数据以'\n'为结束标志
 
 typedef struct th
 {
@@ -41,6 +42,7 @@ typedef struct th
 	char buf1[128];
 	char username[32];
 }THREAD;
+
 /**
  *函数声明部分
  */
@@ -49,6 +51,7 @@ void my_register(int conn_fd);
 void read_list();					//读取在线列表
 
 //输入账号和消息
+//获取用户输入存入到buf，buf的长度为len，用户输入数据以'\n'为结束标志
 int get_userinfo(char *buf, int len)
 {
 	int i;
@@ -202,7 +205,11 @@ void * thread2(int conn_fd)
 		else if( strcmp(buf1, "Username Already exists.Please choose another\0") ==0 ){
 			flag_login=1;
 		}
-	
+
+		else if(buf1[0] == '^' && buf1[1] == '^' ){
+			go=1;
+			pthread_exit(0);
+		}
 		//接受的是登录返回的消息
 		else if(buf1[0]==VALID_USERINFO){
 			input_l=1;
@@ -265,10 +272,8 @@ int userinfo_mat(char *f_username, char *s_username)
 		i=0;
 		j=0;
 		k=0;
-
 		//找出第一个名字
 		while( (ch=fgetc(fp) ) !='@'){
-
 			if( ch != '_' && ch !='\n' ){
 				name1[i++]=ch;
 			}
@@ -337,17 +342,65 @@ void * thread1(THREAD *th)
 	char acc[32];						//接受消息的用户名
 	char info[128];						//纯消息
 	char rec_name[32];					// 查聊天记录时的用户名
+	char d_name[32];					//被删除的用户名
+
+	printf("操作命令如下:\n\n");
+	printf("$$:  以管理员身份操作,只有管理员能使用此功能\n");
+	printf("**:  查看在线列表\n");
+	printf("##:  查看聊天记录\n");
 
 	strcpy(filename_s, "s_records");		//设置文件名
 	strcpy(filename_q, "q_records");
 
 	while(1){
 
+		if(go==1){
+			pthread_exit(0);
+		}
 		memset(recv_buf, 0, strlen(recv_buf));							//清零
 		//输入消息内容
 		if( ( key=get_userinfo(recv_buf, 128) ) <0 ){
 			my_err("get_userinfo", __LINE__);
 		}
+
+		if(strcmp(th->username, "linux") ==0 && recv_buf[0]== '$' && recv_buf[1] == '$'){
+			identity=1;
+			continue;
+		}
+
+		//解除管理员身份
+		else if(identity ==1 && recv_buf[0] == '$' && recv_buf[1] == '$'){
+
+			printf("输入命令:^^\n");
+			identity=0;
+			continue;
+		}
+
+		else if(recv_buf[0] == '$' && recv_buf[1] == '$'){
+			printf("命令无效,请重新输入聊天消息或者其它命令\n");
+			continue;
+		}
+		if(identity==1){
+			//踢人
+			if(recv_buf[0] == '^' && recv_buf[1]=='^'){
+
+				if( send(thid, "^^", strlen("^^") +1, 0) <0 ){
+					my_err("send", __LINE__);
+				}
+
+				printf("input the name that you want to delete:\n");
+				scanf("%s", d_name);
+
+				if( send(thid, d_name, strlen(d_name)+1, 0) <0 ){
+					my_err("send", __LINE__);
+				}
+
+				usleep(1000);
+				continue;
+			}
+		}
+
+
 
 		if( send(thid, recv_buf,strlen(recv_buf), 0 )<0 ){
 		my_err("send", __LINE__);
@@ -388,7 +441,11 @@ void * thread1(THREAD *th)
 
 		//写入文件
 		else{
-			wchat_records(filename_q, recv_buf);
+
+			strcat(file_w, th->username);
+			strcat(file_w, ":\0");
+			strcat(file_w, recv_buf);
+			wchat_records(filename_q, file_w);
 		}
 
 		flag_key=1;
@@ -569,15 +626,15 @@ int main(int argc, char ** argv)
 
 	input_userinfo(conn_fd, "password", 2);
 	
-	//for(i=0; i<ret; i++){
-	//	printf("%c",recv_buf[i]);
-//	}
 
 	//创建一个线程发送数据
 	th->conn_fd=conn_fd;
 	pthread_create(&thid1, NULL, (void *)thread1, th);
 	
 	while(1){
+		if(go==1){
+			break;
+		}
 		sleep(1);
 	}
 	close(conn_fd);
