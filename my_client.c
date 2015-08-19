@@ -91,9 +91,9 @@ int get_userinfo1(char *buf, int len)
 	return key;
 }
 //登录时输入信息，i=1代表用户名，i=2代表密码
-char *input_userinfo(int conn_fd, const char *string, int i)
+int input_userinfo(int conn_fd, const char *string, int i, char input_buf[])
 {
-	char input_buf[32];
+//	char input_buf[32];
 	char recv_buf[BUFSIZE];
 	char *username;
 	char flag_userinfo;
@@ -131,8 +131,8 @@ char *input_userinfo(int conn_fd, const char *string, int i)
 
 	}while(flag_userinfo==INVALID_USERINFO);
 
-	username=input_buf;
-	return username;
+	//username=input_buf;
+//	return username;
 }
 
 void wchat_records(char *filename, char *records)
@@ -214,7 +214,9 @@ void * thread2(int conn_fd)
 		else if(buf1[0]==VALID_USERINFO){
 			input_l=1;
 		}
-
+		if(  strcmp("n\n",buf1) == 0 ){
+			continue;
+		}
 		//输出接受到的消息
 		printf("%s\n", buf1);
 	}
@@ -375,6 +377,7 @@ void * thread1(THREAD *th)
 		}
 
 		if(strcmp(th->username, "linux") ==0 && recv_buf[0]== '$' && recv_buf[1] == '$'){
+			printf("输入命令:^^\n");
 			identity=1;
 			continue;
 		}
@@ -382,7 +385,6 @@ void * thread1(THREAD *th)
 		//解除管理员身份
 		else if(identity ==1 && recv_buf[0] == '$' && recv_buf[1] == '$'){
 
-			printf("输入命令:^^\n");
 			identity=0;
 			continue;
 		}
@@ -591,7 +593,8 @@ int main(int argc, char ** argv)
 	int thid1;					//线程号
 	int thid2;
 	THREAD *th;					//创建线程传参
-	char	*string;				//用一个字符型指针
+	char string[128];			//保存登录时的用户名
+	char string1[128];			//保存登陆时的密码
 
 	create_file();
 
@@ -655,12 +658,12 @@ int main(int argc, char ** argv)
 
 
 	//用户登录部分输入用户名和密码
-	string=input_userinfo(conn_fd, "username", 1);
+	input_userinfo(conn_fd, "username", 1, string);
 
 	strcpy(th->username, string);
 	th->username[strlen(th->username)-1]='\0';		//去掉'\n' 获取用户名
 
-	input_userinfo(conn_fd, "password", 2);
+	input_userinfo(conn_fd, "password", 2, string1);
 	
 
 	//创建一个线程发送数据

@@ -366,7 +366,7 @@ void *thread1(THREAD *head)
 
 	    if( strcmp(thid->recv_buf, "register") == 0){
 			flag_login=1;
-			continue;
+		//	continue;
 		}
 		
 		//用achivement代表确认注册然后往文件里面写
@@ -386,7 +386,7 @@ void *thread1(THREAD *head)
 			ret++;
 			flag_login=0;
 
-			continue;
+		//	continue;
 		}
 
 		//如果接收的是注册消息
@@ -405,7 +405,7 @@ void *thread1(THREAD *head)
 				flag_login=2;
 			}
 
-			continue;
+			//continue;
 
 		}
 
@@ -414,7 +414,7 @@ void *thread1(THREAD *head)
 			strcpy(user_ss.password, thid->recv_buf);
 			//假如密码内有东西就赋值，没有就重头开始
 			flag_login=0;
-			continue;
+			//continue;
 		}
 
 		//如果接收到的是一条消息
@@ -456,10 +456,10 @@ void *thread1(THREAD *head)
 				}
 			}
 
-			continue;
+		fflush(stdin);
+			//continue;
 		}
 	
-		fflush(stdin);
 		//接收到的是用户名或者密码
 		if(login==0){
 			i=sign_in(thid, flag_recv, users);
