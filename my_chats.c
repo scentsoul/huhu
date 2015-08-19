@@ -461,7 +461,7 @@ void *thread1(THREAD *head)
 		}
 	
 		//接收到的是用户名或者密码
-		if(login==0){
+		else if(login==0){
 			i=sign_in(thid, flag_recv, users);
 			if(i==1){
 				strcpy(pre_username1,thid->recv_buf );

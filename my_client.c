@@ -513,7 +513,8 @@ void my_register(int conn_fd)
 				{
 					getchar();
 					printf("\nPlease input the password:");
-				
+			
+					while(1){
 					//getchar();
 					for(i=0; i<31; i++){
 						ch=getch();
@@ -549,8 +550,13 @@ void my_register(int conn_fd)
 						break;
 					}
 					else{
-						printf("two input password dose not match ,again\n");
+						printf("\ntwo input password dose not match ,again\n");
 					}	
+
+
+					}
+
+					break;
 				}
 			}
 			//将全局变量设置为可以注册的情况
