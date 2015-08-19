@@ -139,10 +139,10 @@ void wchat_records(char *filename, char *records)
 {
 	int fd;		//文件描述符
 
-	//检查，文件不存在则新建
+/*	//检查，文件不存在则新建
 	fd=open(filename, O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
 	close(fd);
-
+*/
 	//以追加的方式打开文件并写入
 	if( (fd=open(filename, O_RDWR | O_APPEND) ) ==-1 ){
 		my_err("fileopen", __LINE__);
@@ -261,22 +261,18 @@ int userinfo_mat(char *f_username, char *s_username)
 	int i,j, k;
 	char buf[128];		//存一条消息记录
 	int x=0,y=0;		//逻辑值
-	int fd;				//打开文件时用
-	int key=0;			//key==1代表聊天记录存在
+	int key=0;			//key=0代表文件完全没有内容，key=1代表没有要查找的内容key=2代表找到
 
 
-	fp=fopen("s_records", "a+");
+	fp=fopen("s_records", "rt");
 	if(fp==NULL){
 		my_err("fopen", __LINE__);
 	}
 
-	if( ( ch=fgetc(fp) )  == EOF){
-		printf("暂时没有任何聊天消息哦，至少先说一句吧...\n");
-
-		return -1;
-	}
+	ch=fgetc(fp);
 	while( ch != EOF){
 
+		key=1;		//文件有内容
 		i=0;
 		j=0;
 		k=0;
@@ -299,7 +295,7 @@ int userinfo_mat(char *f_username, char *s_username)
 		y=  ( !(strcmp(f_username, name2) ) &&  !( strcmp(s_username, name1) ) );
 		if( x || y  ){
 
-			k=1;
+			key=2;								//找到所需内容
 			while(  (ch=fgetc(fp)) != '_'){
 				buf[k++]=ch;
 			}
@@ -323,9 +319,10 @@ int userinfo_mat(char *f_username, char *s_username)
 			break;
 		}
 	}
-
-	if(k==0){
-		printf("抱歉，您和该用户暂时没有聊天记录\n");
+	if(key==0){
+		printf("暂时没有任何聊天消息哦，至少先说一句吧...\n");
+	}else if(key==1){
+		printf("抱歉，暂时没有该用户和您的聊天记录\n");
 	}
 	fclose(fp);
 }
@@ -360,7 +357,6 @@ void * thread1(THREAD *th)
 
 	printf("操作命令如下:\n\n");
 	printf("$$:  以管理员身份操作,只有管理员能使用此功能\n");
-	printf("$$:	 第二次输入此命令时暂停管理员身份\n");
 	printf("**:  查看在线列表\n");
 	printf("##:  查看聊天记录\n");
 
@@ -413,13 +409,6 @@ void * thread1(THREAD *th)
 				usleep(1000);
 				continue;
 			}
-
-			//查看所有人的聊天记录
-			if( recv_buf[0] == '<' && recv_buf[1] == '<'){
-
-			}
-
-
 		}
 
 
@@ -462,7 +451,7 @@ void * thread1(THREAD *th)
 		}
 
 		//写入文件
-		else if(key != 1){
+		else{
 
 			strcat(file_w, th->username);
 			strcat(file_w, ":\0");
@@ -482,19 +471,27 @@ void * thread1(THREAD *th)
 //用户名注册函数
 void my_register(int conn_fd)
 {
-	char press;							//注册时用
-	char name[32];						//注册时输入的用户名
-	char password[32];					//注册时输入的密码
-	char password1[32];					//再次输入密码
-	int  in_put=1;						//如果用户名存在考虑输入其他用户名
+	char press[20];					//注册时用
+	char  in_put[20];				//如果用户名存在考虑输入其他用户名
+
+
+	char name[32];					//注册时输入的用户名
+	char password[32];				//注册时输入的密码
+	char password1[32];				//再次输入密码
+
 	int  stop=0;						//用于阻塞的变量到时候可能会用
 	char ch;							//用于输入密码
 	int	 i=0;
 
+	strcpy(in_put, "1");
 	printf("Press y or Y to Register:");
-	scanf("%c", &press);
-	if(press == 'y' || press == 'Y'){
-		while(in_put==1)
+	scanf("%s", press);
+
+	if(strlen(press) >= 19){
+		printf("啧啧，对你的人类身份表示怀疑呀....\n");
+	}
+	else if ( !( strcmp(press, "y") ) ||  !(strcmp(press, "Y")) ){
+		while( strcmp(in_put, "1") == 0 )
 		{
 			if( send(conn_fd, "register\0", strlen("register\0")+1 ,0) <0 ){
 				my_err("send", __LINE__);
@@ -559,13 +556,29 @@ void my_register(int conn_fd)
 			usleep(100);					//停一下下等待消息
 			flag_login=0;							
 			printf("\npress 1 register again:");
-			scanf("%d", &in_put);
+			scanf("%s", in_put);
+			if(strlen(in_put) >= 19){
+				printf("啧啧，对你的人类身份表示怀疑呀....\n");
+			}
+
+		
 		}
 	}
-
-
+	
 }
 
+//保证需要用的文件都存在
+void create_file(void)
+{
+
+	int fd;
+	//检查，文件不存在则新建
+	fd=open("s_records", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
+	close(fd);
+
+	fd=open("q_records", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
+	close(fd);
+}
 int main(int argc, char ** argv)
 {
 
@@ -579,7 +592,8 @@ int main(int argc, char ** argv)
 	int thid2;
 	THREAD *th;					//创建线程传参
 	char	*string;				//用一个字符型指针
-	
+
+	create_file();
 
 	th=(THREAD *)malloc(sizeof(THREAD));
 	//检查参数个数

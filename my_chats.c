@@ -366,10 +366,18 @@ void *thread1(THREAD *head)
 
 	    if( strcmp(thid->recv_buf, "register") == 0){
 			flag_login=1;
+			continue;
 		}
 		
 		//用achivement代表确认注册然后往文件里面写
 		else if( strcmp(thid->recv_buf, "achivement") == 0){
+
+			//返馈注册成功的信息给客户端
+			if(send(thid->conn_fd, "Success\0", 8,0) <0 ){
+				my_err("send", __LINE__);
+			}
+
+			//往文件写的函数
 			my_filewrite(user_ss);
 			
 			strcpy(users[ret].username, user_ss.username);
@@ -377,6 +385,8 @@ void *thread1(THREAD *head)
 
 			ret++;
 			flag_login=0;
+
+			continue;
 		}
 
 		//如果接收的是注册消息
@@ -393,10 +403,9 @@ void *thread1(THREAD *head)
 			else{
 				//成功以后开始接受密码
 				flag_login=2;
-				if(send(thid->conn_fd, "Success\0", 8,0) <0 ){
-					my_err("send", __LINE__);
-				}
 			}
+
+			continue;
 
 		}
 
@@ -405,6 +414,7 @@ void *thread1(THREAD *head)
 			strcpy(user_ss.password, thid->recv_buf);
 			//假如密码内有东西就赋值，没有就重头开始
 			flag_login=0;
+			continue;
 		}
 
 		//如果接收到的是一条消息
@@ -636,6 +646,14 @@ int my_filewrite(USERINFO user_ss)
 	}
 
 }*/
+void create_file(void)
+{
+
+	int fd;
+	//检查，文件不存在则新建
+	fd=open("acc_pass", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
+	close(fd);
+}
 int main(void)
 {
 
@@ -648,6 +666,7 @@ int main(void)
 // 	regis_account();
 */
 	printf("hah\n");
+	create_file();
 	mychat_server();
 
 //	 my_read();
