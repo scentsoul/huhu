@@ -119,8 +119,8 @@ int input_userinfo(int conn_fd, const char *string, int i, char input_buf[])
 		if( send(conn_fd, input_buf, strlen(input_buf), 0) <0){
 			my_err("send", __LINE__);
 		}
-
-		//usleep(1000);
+		
+		usleep(1000);
 		if(input_l==1){
 			input_l=0;
 			flag_userinfo=VALID_USERINFO;
@@ -408,7 +408,7 @@ void * thread1(THREAD *th)
 					my_err("send", __LINE__);
 				}
 
-				//usleep(1000);
+				usleep(1000);
 				continue;
 			}
 		}
@@ -435,7 +435,7 @@ void * thread1(THREAD *th)
         key=message_pro(recv_buf, acc, info);
 		acc[strlen(acc)-1]='\0';				//去掉\n
 
-		//usleep(100);
+		usleep(100);
 
 		//key==1代表存在@, flag_key==1代表@后的用户名存在
 		if(key==1 && flag_key ==1 ){
@@ -506,7 +506,7 @@ void my_register(int conn_fd)
 			}
 
 			//停止一下下等待接受到用户是否存在的信息
-			//usleep(1000);
+			usleep(1000);
 			//如果可以注册
 			if(flag_login == 0){
 				while(1)
@@ -561,7 +561,7 @@ void my_register(int conn_fd)
 			}
 			//将全局变量设置为可以注册的情况
 		
-			//usleep(100);					//停一下下等待消息
+			usleep(100);					//停一下下等待消息
 			flag_login=0;							
 			printf("\npress 1 register again:");
 			scanf("%s", in_put);
