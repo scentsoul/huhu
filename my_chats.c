@@ -62,7 +62,7 @@ int login=0;			// 设置一个全局变量代表接受消息类型是否为登�
 int finally=0;				//设置一个全局变量代表下线的是否为尾结点
 int flag_login=0;			//flag_login=1代表接受的是注册的消息
 int delete=0;				//identity=代表管理员身份	
-
+int flag_key=0;				//flag_key=1代表处于查看聊天记录状态
 /*
  *函数声明部分
  *
@@ -71,7 +71,7 @@ void my_err(const char *err_string,int line);		//错误处理
 int find_name(const char *name, USERINFO users[]);					//查找用户名
 void *thread1(THREAD *head);						//创建一个线程
 int mychat_server(void);							//主要操控函数
-int message_pro(THREAD *thid,char *user);			//线程部分用户名处理
+int message_pro(THREAD *thid,char *user, char *info);			//线程部分用户名处理
 int userinfo_match(char *re_username);				//注册部分用户名匹配
 int regis_account(char *re_username);				//找新用户名是否存在并回应相应信息
 int my_filewrite(USERINFO user_ss);					//将新用户名及密码写入文件
@@ -178,7 +178,7 @@ THREAD * find_match(THREAD *head, char *string)
 }
 
 //从接收到的消息中解析出用户名
-int message_pro(THREAD *thid,char *user)
+int message_pro(THREAD *thid,char *user ,char *info)
 {
 	int i, j=0;
 	int str_len=0;
@@ -189,11 +189,15 @@ int message_pro(THREAD *thid,char *user)
 
 	//找标志@
 	for(i=0; i<str_len; i++){
+
+		info[i]=thid->recv_buf[i];
 		if( thid->recv_buf[i] == '@' ){
 			key=1;
 			break;
 		}
 	}
+	info[i]='\0';
+
 	for(j=0; j<32; j++){
 		i++;
 		user[j]=thid->recv_buf[i];
@@ -243,6 +247,131 @@ int  read_user(USERINFO user[])
 
 	return i;
 }
+
+//查找聊天记录并将记录存储在records中然后发送至conn_fd
+int userinfo_mat(char *f_username, char *s_username , int conn_fd)
+{
+	FILE *fp;			//文件指针
+	int ret;			//ret=0表示没有聊天记录
+	char ch='a';				//遍历文件
+	char name1[128];			//从文件获得的发送方名
+	char name2[128];			//从文件获得接收方用户名
+	int i,j, k;
+	char buf[128];		//存一条消息记录
+	int x=0,y=0;		//逻辑值
+	int key=0;			//key=0代表文件完全没有内容，key=1代表没有要查找的内容key=2代表找到
+	int t=0;			//存储二维数组的下标
+	char records[100][128];	//暂时存储聊天记录
+	
+
+	usleep(100);
+	fp=fopen("ss_records", "rt");
+	if(fp==NULL){
+		my_err("fopen", __LINE__);
+	}
+
+	ch=fgetc(fp);
+
+	if( ch != EOF){
+		key=1;		//文件有内容
+	}
+	while( ch != EOF){
+
+		i=0;
+		j=0;
+		k=0;
+		//找出第一个名字
+		while( (ch=fgetc(fp) ) !='@'){
+			if( ch != '_' && ch !='\n' ){
+				name1[i++]=ch;
+			}
+		}
+		name1[i]='\0';
+
+		//找出第二个名字
+		while( ( ch=fgetc(fp) ) != ':'){
+		name2[j++]=ch;
+		}
+		name2[j]='\0';
+
+		//找出内容
+		x=  ( !(strcmp(f_username, name1) ) &&  !( strcmp(s_username, name2) ) );
+		y=  ( !(strcmp(f_username, name2) ) &&  !( strcmp(s_username, name1) ) );
+
+		//printf("x=%d, y=%d\n", x, y);
+		if( x || y  ){
+
+			key=2;								//找到所需内容
+			while(  (ch=fgetc(fp)) != '_'){
+				buf[k++]=ch;
+			}
+			buf[k]='\0';
+
+			//将聊天记录整理为所需要的格式
+			strcat(records[t], name1);
+			strcat(records[t], "@");
+			strcat(records[t], name2);
+			strcat(records[t], ":");
+			strcat(records[t], buf);
+		
+			usleep(10);
+			if( send(conn_fd, records[t], strlen(records[t])+1, 0) <0 ){
+				my_err("send", __LINE__);
+			}
+
+		memset( records[t], 0, sizeof(records[t]) );
+			t++;
+		}
+
+		//跳去多余不要的内容
+		else{
+			while( (ch=fgetc(fp))  != '_'){
+
+			}
+		}	
+
+		//排除结尾符
+		if( (ch=fgetc(fp)) == EOF){
+			break;
+		}
+		if( (ch=fgetc(fp)) == EOF){
+			break;
+		}
+	}
+
+
+	if(key==0){
+		if( send(conn_fd, "抱歉，暂时没有任何聊天记录...", 
+					strlen("抱歉，暂时没有任何聊天记录...")+1, 0) <0 ){
+			my_err("send", __LINE__);
+		}
+	}else if(key==1){
+		if( send(conn_fd, "抱歉，暂时没有该用户和您的聊天记录，至少先说一句吧...", 
+					strlen("抱歉，暂时没有该用户和您的聊天记录噢，至少先说一句吧...")+1, 0) <0 ){
+			my_err("send", __LINE__);
+		}
+	}
+
+	fclose(fp);
+}
+
+
+void wchat_records(char *filename, char *records)
+{
+	int fd;		//文件描述符
+
+	//以追加的方式打开文件并写入
+	if( (fd=open(filename, O_RDWR | O_APPEND) ) ==-1 ){
+		my_err("fileopen", __LINE__);
+	}
+
+	if( write(fd, records, strlen(records)) != strlen(records) ){
+		my_err("filewrite", __LINE__);
+	}
+	close(fd);
+}
+
+
 void *thread1(THREAD *head)
 {
 	THREAD		*thid;
@@ -260,6 +389,17 @@ void *thread1(THREAD *head)
 	int			ret=0;			//数组新注册用户的下标
 	FILE		*fp;			//文件指针
 	char		name[32];		//用来储存用户名
+	char		records[100][128];	//用来储存聊天记录
+
+	char        info[128];			//纯消息
+	char		file_w[128];		//暂时保存需要向文件里面存的一条消息
+	char		filename_s[32];		//私聊文件名
+	char		filename_q[32];		//群聊文件名
+
+
+	//设置文件名用于写入聊天记录
+	strcpy(filename_s, "ss_records");
+	strcpy(filename_q, "qq_records");
 
 	thid=head->th;						//接受原本thid的值
 	thid->stat=0;
@@ -272,10 +412,10 @@ void *thread1(THREAD *head)
 
 		thid->recv_buf[thid->len-1] = '\0';
 
-		//printf("%s\n", thid->recv_buf);
 		memset(thid->recv_buf, 0, sizeof(thid->recv_buf));
 		thid->len=recv(thid->conn_fd, thid->recv_buf, sizeof(thid->recv_buf),0);
-
+		//printf("%s\n", thid->recv_buf);
+						
 		//实施踢人
 		if(thid->recv_buf[0] == '$' && thid->recv_buf[1] == '$'){
 			thid->len=0;
@@ -286,6 +426,7 @@ void *thread1(THREAD *head)
 		{
 			//从链表中删除该结点
 			
+			flag_key=0;
 			if(thid->next != NULL)
 			{
 				(thid->next1)->next=(thid->next);
@@ -307,8 +448,20 @@ void *thread1(THREAD *head)
 			pthread_exit(0);
 		}
 
+		else if(thid->recv_buf[0] == '\n'){
+			continue;
+		}
 		//查看聊天记录
-		else if(thid->recv_buf[0] == '#' && thid->recv_buf[1]  == '#' || thid->recv_buf[0] == '\n'){
+		else if(thid->recv_buf[0] == '#' && thid->recv_buf[1]  == '#'){
+			flag_key=1;
+			continue;
+		}
+
+		else if(flag_key == 1){
+			
+			printf("thid->pre_username=%s, thid->recv_buf=%s\n", thid->pre_username, thid->recv_buf);
+			userinfo_mat(thid->pre_username, thid->recv_buf ,thid->conn_fd);
+			flag_key=0;
 			continue;
 		}
 
@@ -366,7 +519,7 @@ void *thread1(THREAD *head)
 
 	    if( strcmp(thid->recv_buf, "register") == 0){
 			flag_login=1;
-		//	continue;
+			continue;
 		}
 		
 		//用achivement代表确认注册然后往文件里面写
@@ -399,14 +552,15 @@ void *thread1(THREAD *head)
 				if(send(thid->conn_fd, "Username Already exists.Please choose another\0",47 ,0)  <0 ){
 					my_err("send", __LINE__);
 				}
+
+				flag_login=0;
 			}
 			else{
 				//成功以后开始接受密码
 				flag_login=2;
 			}
 
-			//continue;
-
+			continue;
 		}
 
 		//接受的是密码
@@ -414,13 +568,13 @@ void *thread1(THREAD *head)
 			strcpy(user_ss.password, thid->recv_buf);
 			//假如密码内有东西就赋值，没有就重头开始
 			flag_login=0;
-			//continue;
+			continue;
 		}
 
 		//如果接收到的是一条消息
 		if( login == 1){
 			//根据返回值key=1代表私发，key=0代表群发
-			key=message_pro(head->present, string);
+			key=message_pro(head->present, string, info);
 			if(key==1){
 				check=find_match(head, string);				//匹配后的结点指针
 				if(check==NULL){
@@ -430,33 +584,74 @@ void *thread1(THREAD *head)
 					printf("no have such username\n");
 				}
 				else{
-					thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
+
+					char pre_info[128];
+
+					memset(pre_info, 0, strlen(pre_info));
+					//将消息整合成指定格式，以便发送
+					strcat(pre_info, thid->pre_username);
+					strcat(pre_info, "@me: ");
+					strcat(pre_info, info);
+
+					//thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
 					//向指定的用户名发送消息
-					if (send(check->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
+					if (send(check->conn_fd, pre_info, strlen(pre_info)+1, 0) <0 ){
 						my_err("scend", __LINE__);
 					}
-					//	printf("%d\n", check->conn_fd);		//测试找结点有没有找正确
-						thid->recv_buf[0]='D';				//防止死循环
+
+					usleep(100);
+					strcpy(file_w, "_\0");				//以_符号开头
+					strcat(file_w, thid->pre_username);		//发消息的人
+
+					strcat(file_w,"@\0");				
+					strcat(file_w, string);				//连接接消息的人
+
+					strcat(file_w, ":\0");				//消息分割处
+					strcat(file_w, info);				//连接消息
+					strcat(file_w, "_\n\0");			//结尾并加换行符
+
+					wchat_records(filename_s, file_w);	//
+					thid->recv_buf[0]='D';				//防止死循环
 				}
 				continue;
 
 			}else if(key==0){
-				while(p != NULL){
+				//写入群文件
+				strcat(file_w, thid->pre_username);
+				strcat(file_w, ":\0");
+				strcat(file_w, thid->recv_buf);
+				strcat(file_w,"\n");
+				wchat_records(filename_q, file_w);
 
-					thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
+				//将群消息整合成指定格式，以便发送
+				char pre_info1[128];
+				strcat(pre_info1, thid->pre_username);
+				strcat(pre_info1, ":");
+				strcat(pre_info1, thid->recv_buf);
+
+
+				//群发
+				while(p != NULL){
+					//thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
 					if(p->conn_fd == thid->conn_fd){
 						p=p->next;
 						continue;
 					}										//群消息自己不要重复收自己的
-					else if (send(p->conn_fd, thid->recv_buf, strlen(thid->recv_buf)+1, 0) <0 ){
+					else if (send(p->conn_fd, pre_info1, strlen(pre_info1)+1, 0) <0 ){
 						my_err("scend", __LINE__);
 					}
-				//	printf("%s\n", p->pre_username);
 					p=p->next;
 				}
 			}
+			
+			
+			//清零部分
+			memset(file_w, 0, strlen(file_w));
+			file_w[strlen(file_w)+1]='\0';
+			file_w[0]='\0';
 
-		fflush(stdin);
+
+			fflush(stdin);
 			//continue;
 		}
 	
@@ -631,21 +826,6 @@ int my_filewrite(USERINFO user_ss)
 	fclose(fp);
 }
 
-/*void my_read()
-{
-	FILE *fp;
-	char ch;
-	fp=fopen("acc_pass", "a+");
-	if(fp == NULL){
-		printf("打开文件失败\n");
-		exit(1);
-	}
-
-	while( (ch=fgetc(fp)) != EOF){
-		printf("%c", ch);
-	}
-
-}*/
 void create_file(void)
 {
 
@@ -653,22 +833,21 @@ void create_file(void)
 	//检查，文件不存在则新建
 	fd=open("acc_pass", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
 	close(fd);
+
+
+	fd=open("ss_records", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
+	close(fd);
+
+
+	fd=open("qq_records", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
+	close(fd);
 }
 int main(void)
 {
 
-//	my_read();
-	/*char string[32];
-	scanf("%s", string);
-	regis_account(string);
-
-
-// 	regis_account();
-*/
 	printf("hah\n");
 	create_file();
 	mychat_server();
 
-//	 my_read();
 	return 0;
 }
