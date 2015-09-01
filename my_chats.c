@@ -68,15 +68,21 @@ int flag_key=0;				//flag_key=1代表处于查看聊天记录状态
  *
  */
 void my_err(const char *err_string,int line);		//错误处理
-int find_name(const char *name, USERINFO users[]);					//查找用户名
+int find_name(const char *name, USERINFO users[]);	//查找用户名
+int sign_in(THREAD *p, int flag_recv, USERINFO users[]);//登录函数
+THREAD * find_match(THREAD *head, char *string);		//从在线列表中找出一个用户用于踢人和发消息
+int message_pro(THREAD *thid,char *user ,char *info);	//判断一个消息是群聊还是私聊以及解析出纯消息
+int write_list(THREAD * head);						//将在线列表写入文件
+int userinfo_mat(char *f_username, char *s_username , int conn_fd);//查找聊天记录并将记录存储在records中然后发送至conn_fd
+void wchat_records(char *filename, char *records);	//将聊天记录写入文件
 void *thread1(THREAD *head);						//创建一个线程
 int mychat_server(void);							//主要操控函数
-int message_pro(THREAD *thid,char *user, char *info);			//线程部分用户名处理
-int userinfo_match(char *re_username);				//注册部分用户名匹配
-int regis_account(char *re_username);				//找新用户名是否存在并回应相应信息
+int userinfo_match(char *re_username);				//注册部分用匹配用户名是否已经存在
+int regis_account(char *re_username);				//找新用户名是否存在并回应相应信息()
 int my_filewrite(USERINFO user_ss);					//将新用户名及密码写入文件
-int write_list(THREAD * head);						//将在线列表写入文件
-int read_user(USERINFO user[]);					//从文件中读取用户信息用于登录
+void create_file(void);								//保证操作过程中所需要的文件都存在
+int read_user(USERINFO user[]);					    //从文件中读取出所有用户信息用于登录
+
 
 
 //自定义的错误处理函数
@@ -655,7 +661,7 @@ void *thread1(THREAD *head)
 			//continue;
 		}
 	
-		//接收到的是用户名或者密码
+		//接收到的是登录的用户名或者密码
 		else if(login==0){
 			i=sign_in(thid, flag_recv, users);
 			if(i==1){
@@ -663,7 +669,8 @@ void *thread1(THREAD *head)
 				flag_recv = PASSWORD;			//账户验证成功
 			}
 			else if(i==2){
-
+				
+				char pre_info2[128];		//储存用户上线提醒消息发送给在线用户
 				//将密码和用户名赋值给链表的结点a
 				strcpy(thid->pre_password, thid->recv_buf);
 				strcpy(thid->pre_username,pre_username1);
@@ -671,10 +678,27 @@ void *thread1(THREAD *head)
 				write_list(head);
 				login=1;						//登录成功改变全局变量
 
+				//整合成提示发送到每个用户
+				strcpy(pre_info2, thid->pre_username);
+				strcat(pre_info2, "上线");
+
+				p=head->next;
+				while(p != NULL){
+
+					if(p->conn_fd == thid->conn_fd){
+						p=p->next;
+						continue;
+					}										//群消息自己不要重复收自己的
+					else if (send(p->conn_fd, pre_info2, strlen(pre_info2)+1, 0) <0 ){
+						my_err("scend", __LINE__);
+					}
+					p=p->next;
+				}
+
+				memset( pre_info2, 0, sizeof(pre_info2) );
 			}
 		}
 	}
-
 	pthread_exit(0);
 }
 
@@ -766,7 +790,7 @@ int mychat_server(void)
 
 		head->th=thid;
 
-		printf("accept a new client,ip:%s\n",inet_ntoa(cli_addr.sin_addr));
+		//printf("accept a new client,ip:%s\n",inet_ntoa(cli_addr.sin_addr));
 		if( pthread_create(&(thid->thread),  NULL, (void *)thread1, head)  != 0){
 				printf("thread create failed\n");
 				exit(1);
