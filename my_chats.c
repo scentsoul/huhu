@@ -43,25 +43,25 @@ typedef struct userinfo
 //用于给新创建的线程传参的结构体
 typedef struct th
 {
-	char recv_buf[1024]; //存消息的数组
-	int len;			//获取文件的字节数
-	pthread_t thread;		//线程号
-	int conn_fd;		//一个已连接的套接字
-	struct th *next;			//指向右边
-	struct th *next1;			//指向左边
-	char	pre_username[32];	//保存用户名
-	char	pre_password[32];	//保存用户密码
-	struct th *th;			//一个指针指向当前位置
-	struct th *present;
-	int stat;				//stat=1代表用户在线
+	char          recv_buf[1024];     //存消息的数组
+	int           len;			      //获取文件的字节数
+	pthread_t     thread;		      //线程号
+	int           conn_fd;		      //一个已连接的套接字
+	struct th*    next;			      //指向右边
+	struct th*    next1;			  //指向左边
+	char	      pre_username[32];	  //保存用户名
+	char	      pre_password[32];	  //保存用户密码
+	struct th*    th;			      //一个指针指向当前位置
+	struct th*    present;
+	int           stat;				  //stat=1代表用户在线
 }THREAD;		
 
 
 int name_num=0;			//设置一个全局变量代表账号下标
 int login=0;			// 设置一个全局变量代表接受消息类型是否为登录状态
 int finally=0;				//设置一个全局变量代表下线的是否为尾结点
-int flag_login=0;			//flag_login=1代表接受的是注册的消息
-int delete=0;				//identity=代表管理员身份	
+int flag_log=0;			//flag_log=1代表接受的是注册的消息
+int adm=0;				//identity=代表管理员身份	
 int flag_key=0;				//flag_key=1代表处于查看聊天记录状态
 /*
  *函数声明部分
@@ -82,6 +82,7 @@ int regis_account(char *re_username);				//找新用户名是否存在并回应�
 int my_filewrite(USERINFO user_ss);					//将新用户名及密码写入文件
 void create_file(void);								//保证操作过程中所需要的文件都存在
 int read_user(USERINFO user[]);					    //从文件中读取出所有用户信息用于登录
+void read_all_records(int conn_fd);					//读取所有聊天记录函数
 
 
 
@@ -267,7 +268,7 @@ int userinfo_mat(char *f_username, char *s_username , int conn_fd)
 	int x=0,y=0;		//逻辑值
 	int key=0;			//key=0代表文件完全没有内容，key=1代表没有要查找的内容key=2代表找到
 	int t=0;			//存储二维数组的下标
-	char records[100][128];	//暂时存储聊天记录
+	char records[500][128];	//暂时存储聊天记录
 	
 
 	usleep(100);
@@ -377,6 +378,62 @@ void wchat_records(char *filename, char *records)
 	close(fd);
 }
 
+//读取所有聊天记录
+void read_all_records(int conn_fd)
+{
+	FILE *fp;		//文件描述符
+	char records[128];			//开一个数组暂时存储聊天记录
+
+	//将records置空
+	memset(records, 0, sizeof(records) );
+	usleep(100);
+  
+	//打开文件
+	fp=fopen("ss_records", "rt");
+	if( fp == NULL){
+		my_err("fopen", __LINE__);
+	}
+
+	//发私聊记录到客户端
+	if( send(conn_fd, "所有私聊消息:\n", strlen("所有私聊消息:\n")+1, 0) <0 ){
+		my_err("send", __LINE__);
+	}
+
+	while( fscanf(fp, "%s", records) != EOF){
+		usleep(10);
+		if( send(conn_fd, records, strlen(records)+1, 0) <0 ){
+			my_err("send", __LINE__);
+		}
+		memset(records, 0, sizeof(records) );
+	}
+	
+	//关闭文件
+	fclose(fp);
+	memset( records, 0, sizeof(records) );
+
+	fp=fopen("qq_records", "rt");
+	if( fp == NULL){
+		my_err("fopen", __LINE__);
+	}
+	if( send(conn_fd, "所有群聊消息:\n", strlen("所有群聊消息:\n")+1, 0) <0 ){
+		my_err("send", __LINE__);
+	}
+
+	//发群聊消息到客户端
+	while( fscanf(fp, "%s", records) != EOF){
+		usleep(10);
+		if( send(conn_fd, records, strlen(records)+1, 0) <0 ){
+			my_err("send", __LINE__);
+		}
+		memset(records, 0, sizeof(records) );
+	}
+	
+	//关闭文件
+	fclose(fp);
+	memset( records, 0, sizeof(records) );
+}
+
+
 
 void *thread1(THREAD *head)
 {
@@ -430,9 +487,24 @@ void *thread1(THREAD *head)
 		//如果操作过程中用户下线
 		if(thid->len == 0)
 		{
-			//从链表中删除该结点
-			
+			//先发送下线消息到客户端
+			char pre_info2[128];
+			strcpy(pre_info2, thid->pre_username);
+			strcat(pre_info2, "下线了 : < ");
+			p=head->next;
+			while(p != NULL){
+				if(p->conn_fd == thid->conn_fd){
+					p=p->next;
+					continue;
+				}										//下线提醒消息自己不要收到自己的
+				else if (send(p->conn_fd, pre_info2, strlen(pre_info2)+1, 0) <0 ){
+					my_err("scend", __LINE__);
+				}
+				p=p->next;
+			}
 			flag_key=0;
+			
+			//从链表中删除该结点
 			if(thid->next != NULL)
 			{
 				(thid->next1)->next=(thid->next);
@@ -446,9 +518,6 @@ void *thread1(THREAD *head)
 				thid=NULL;
 				finally=1;
 			}
-
-		//	pthread_detach( pthread_self() );
-			//close(thid->conn_fd);		//先关闭再删除
 
 			write_list(head);
 			pthread_exit(0);
@@ -488,13 +557,24 @@ void *thread1(THREAD *head)
 			continue;
 		}
 	
-		//接收的是踢人的提示
-		else if(thid->recv_buf[0] == '^' && thid->recv_buf[1] == '^'){
-			delete=1;
+		//接收的是管理员身份执行的提示
+		else if(thid->recv_buf[0] == '^' && thid->recv_buf[1] == '^' && strcmp(thid->pre_username, "linux") ==0 ){
+			adm=1;
 			continue;
 		}
-		else if(delete==1){
 
+			
+		//接受的是查看所有聊天记录的提示
+		else if(adm==1){
+			
+			//查看所有人的所有聊天记录
+			if(thid->recv_buf[0] == '/' && thid->recv_buf[1] == '/'){
+				read_all_records(thid->conn_fd);
+				adm=0;
+				continue;
+			}
+
+			//踢人
 			check=find_match(head, thid->recv_buf);				//找到要踢的人
 			if(check==NULL){
 				if(send(thid->conn_fd, "Nonono\0", 7, 0) <0 ){
@@ -509,7 +589,7 @@ void *thread1(THREAD *head)
 				}
 			}
 
-			delete=0;
+			adm=0;
 			continue;
 		}
 	
@@ -524,7 +604,7 @@ void *thread1(THREAD *head)
 		//printf("%s\n", thid->recv_buf);
 
 	    if( strcmp(thid->recv_buf, "register") == 0){
-			flag_login=1;
+			flag_log=1;
 			continue;
 		}
 		
@@ -543,13 +623,13 @@ void *thread1(THREAD *head)
 			strcpy(users[ret].password, user_ss.password);
 
 			ret++;
-			flag_login=0;
+			flag_log=0;
 
 		//	continue;
 		}
 
 		//如果接收的是注册消息
-		else if(flag_login==1){
+		else if(flag_log==1){
 			strcpy(user_ss.username, thid->recv_buf);
 			//如果用户存在
 			if(userinfo_match(thid->recv_buf) == 1){
@@ -559,21 +639,20 @@ void *thread1(THREAD *head)
 					my_err("send", __LINE__);
 				}
 
-				flag_login=0;
+				flag_log=0;
 			}
 			else{
 				//成功以后开始接受密码
-				flag_login=2;
+				flag_log=2;
 			}
-
 			continue;
 		}
 
 		//接受的是密码
-		else if(flag_login==2){
+		else if(flag_log==2){
 			strcpy(user_ss.password, thid->recv_buf);
 			//假如密码内有东西就赋值，没有就重头开始
-			flag_login=0;
+			flag_log=0;
 			continue;
 		}
 
@@ -622,6 +701,15 @@ void *thread1(THREAD *head)
 				continue;
 
 			}else if(key==0){
+
+				if( (head->next)->next == NULL ){
+					if (send(thid->conn_fd, "聊天室内暂无其他用户", strlen("聊天室内暂无其他用户")+1, 0) <0 ){
+						my_err("scend", __LINE__);
+					}
+
+					continue;
+				}
+
 				//写入群文件
 				strcat(file_w, thid->pre_username);
 				strcat(file_w, ":\0");
@@ -631,6 +719,8 @@ void *thread1(THREAD *head)
 
 				//将群消息整合成指定格式，以便发送
 				char pre_info1[128];
+
+				memset(pre_info1, 0, sizeof(pre_info1) );
 				strcat(pre_info1, thid->pre_username);
 				strcat(pre_info1, ":");
 				strcat(pre_info1, thid->recv_buf);
@@ -638,7 +728,6 @@ void *thread1(THREAD *head)
 
 				//群发
 				while(p != NULL){
-					//thid->recv_buf[strlen(thid->recv_buf)+1]='\0';
 					if(p->conn_fd == thid->conn_fd){
 						p=p->next;
 						continue;
@@ -650,12 +739,10 @@ void *thread1(THREAD *head)
 				}
 			}
 			
-			
 			//清零部分
 			memset(file_w, 0, strlen(file_w));
 			file_w[strlen(file_w)+1]='\0';
 			file_w[0]='\0';
-
 
 			fflush(stdin);
 			//continue;
@@ -680,7 +767,7 @@ void *thread1(THREAD *head)
 
 				//整合成提示发送到每个用户
 				strcpy(pre_info2, thid->pre_username);
-				strcat(pre_info2, "上线");
+				strcat(pre_info2, "上线 : >");
 
 				p=head->next;
 				while(p != NULL){
@@ -688,13 +775,12 @@ void *thread1(THREAD *head)
 					if(p->conn_fd == thid->conn_fd){
 						p=p->next;
 						continue;
-					}										//群消息自己不要重复收自己的
+					}										//上线提醒消息自己不要收到自己的
 					else if (send(p->conn_fd, pre_info2, strlen(pre_info2)+1, 0) <0 ){
 						my_err("scend", __LINE__);
 					}
 					p=p->next;
 				}
-
 				memset( pre_info2, 0, sizeof(pre_info2) );
 			}
 		}
@@ -769,13 +855,6 @@ int mychat_server(void)
 
 		//给链表建立双向关系	
 		p=head->next;
-		/*printf("\n打印链表\n");
-		while(p != NULL)
-		{
-			printf("%s\n", p->pre_username);
-			p=p->next;
-		}
-*/
 		if(finally==1 ){
 
 			printf("1234\n");
@@ -854,7 +933,18 @@ void create_file(void)
 {
 
 	int fd;
+
+	FILE *fp;
+
+
 	//检查，文件不存在则新建
+	
+	fp=fopen("list", "w");
+	if(fp==NULL){
+		my_err("fileopen", __LINE__);
+	}
+	fclose(fp);
+	
 	fd=open("acc_pass", O_CREAT | O_RDWR | O_EXCL, S_IRWXU);
 	close(fd);
 

@@ -219,14 +219,19 @@ void * thread1(THREAD *th)
 	char rec_name[32];					// 查聊天记录时的用户名
 	char d_name[32];					//被删除的用户名
 
+	printf("\033[32m");
 	printf("\n\n=======欢迎来到聊天室=======\n");
 	printf("操作命令如下:\n\n");
-	printf("$$:  以管理员身份操作,只有能用户名为linux才能使用此功能\n");
-	printf("**:  查看在线列表\n");
-	printf("##:  查看聊天记录\n");
-	printf("消息@消息发送对象: 私聊\n");
-	printf("直接在聊天室中按键: 群聊\n");
+	printf("$$:  以管理员身份操作,只有能用户名为linux才能使用此功能\n\n");
+	printf("**:  查看在线列表\n\n");
+	printf("##:  查看聊天记录\n\n");
+	printf("消息@消息发送对象: 私聊\n\n");
+	printf("直接在聊天室中按键: 群聊\n\n\n");
+	printf("\033[37m");
 
+	//printf("\033[s");
+	printf("\033[?25h");
+	//printf("\033[u");						//恢复光标位置
 	while(1){
 
 		if(go==1){
@@ -239,27 +244,31 @@ void * thread1(THREAD *th)
 		}
 
 		if(strcmp(th->username, "linux") ==0 && recv_buf[0]== '$' && recv_buf[1] == '$'){
-			printf("输入命令:^^\n");
+			printf("输入命令:^^踢出用户下线  输入命令://查看所有用户聊天记录\n");
 			identity=1;
 			continue;
 		}
 
 		//解除管理员身份
-		else if(identity ==1 && recv_buf[0] == '$' && recv_buf[1] == '$'){
+	/*	else if(identity ==1 && recv_buf[0] == '$' && recv_buf[1] == '$'){
 			identity=0;
 			continue;
 		}
+
+		*/
 		else if(recv_buf[0] == '$' && recv_buf[1] == '$'){
 			printf("命令无效,请重新输入聊天消息或者其它命令\n");
 			continue;
 		}
 		if(identity==1){
+			
+			//向服务器端发送讯息，代表执行管理员身份
+			if( send(thid, "^^", strlen("^^") +1, 0) <0 ){
+				my_err("send", __LINE__);
+			}
+
 			//踢人
 			if(recv_buf[0] == '^' && recv_buf[1]=='^'){
-
-				if( send(thid, "^^", strlen("^^") +1, 0) <0 ){
-					my_err("send", __LINE__);
-				}
 				printf("input the name that you want to delete:\n");
 				scanf("%s", d_name);
 
@@ -268,6 +277,17 @@ void * thread1(THREAD *th)
 				}
 
 				usleep(1000);
+				identity=0;
+				continue;
+			}
+			
+			//查看所有用户聊天记录
+			else if(recv_buf[0] == '/' && recv_buf[1] == '/') {
+				if(send(thid, "//", strlen("//")+1, 0) <0 ){
+					my_err("send", __LINE__);
+				}
+				usleep(1000);
+				identity=0;
 				continue;
 			}
 		}
@@ -490,7 +510,34 @@ int main(int argc, char ** argv)
 	th->username[strlen(th->username)-1]='\0';		//去掉'\n' 获取用户名
 
 	input_userinfo(conn_fd, "password", 2, string1);
-	
+
+	//稍后提示
+	int k1, k2;
+	printf("\n正在登录中，请稍后");
+	//隐藏光标
+	printf("\033[?25l");
+	for(k2=0; k2<2; k2++){
+		for(k1=0; k1<10; k1++){
+			printf("\033[34m.");
+			fflush(stdout);
+			usleep(100000);
+		}							//蓝点
+		for(k1=0; k1<10; k1++){
+			printf("\b");
+			fflush(stdout);
+		}							//回退
+		for(k1=0; k1<10; k1++){
+			printf("\033[37m.");
+			fflush(stdout);
+			usleep(100000);
+		}							//白点
+		for(k1=0; k1<10; k1++){
+			printf("\b");
+			fflush(stdout);
+		}							//回退
+	}
+	usleep(400000);
+	printf("\033[37m ");
 
 	//创建一个线程发送数据
 	th->conn_fd=conn_fd;
